@@ -1,14 +1,14 @@
 import torch
 import torch_geometric.data as gd
-from rdkit.Chem import QED, rdMolDescriptors
-from rdkit.Chem import Mol as RDMol
-from torch import Tensor
-
 from gflownet import ObjectProperties
 from gflownet.models import bengio2021flow
 from gflownet.utils import sascore
 from gflownet.utils.misc import get_worker_device
+from rdkit.Chem import QED, rdMolDescriptors
+from rdkit.Chem import Mol as RDMol
 from rxnflow.base import BaseTask, RxnFlowTrainer
+from torch import Tensor
+
 from rxnflow.config import Config, init_empty
 
 
@@ -26,9 +26,13 @@ class SEHMOOTask(BaseTask):
         super().__init__(cfg)
         self.seh_proxy = bengio2021flow.load_original_model()
         self.seh_proxy.to(get_worker_device())
-        assert set(self.objectives) <= {"seh", "qed", "sa", "mw"} and len(self.objectives) == len(set(self.objectives))
+        assert set(self.objectives) <= {"seh", "qed", "sa", "mw"} and len(
+            self.objectives
+        ) == len(set(self.objectives))
 
-    def compute_obj_properties(self, mols: list[RDMol]) -> tuple[ObjectProperties, Tensor]:
+    def compute_obj_properties(
+        self, mols: list[RDMol]
+    ) -> tuple[ObjectProperties, Tensor]:
         graphs = [bengio2021flow.mol2graph(i) for i in mols]
         assert len(graphs) == len(mols)
         is_valid = [i is not None for i in graphs]
@@ -57,8 +61,12 @@ class SEHMOOTask(BaseTask):
 
     def calc_mol_prop(self, mols: list[RDMol], prop: str) -> Tensor:
         if prop == "mw":
-            molwts = torch.tensor([safe(rdMolDescriptors.CalcExactMolWt, i, 1000) for i in mols])
-            molwts = ((300 - molwts) / 700 + 1).clip(0, 1)  # 1 until 300 then linear decay to 0 until 1000
+            molwts = torch.tensor(
+                [safe(rdMolDescriptors.CalcExactMolWt, i, 1000) for i in mols]
+            )
+            molwts = ((300 - molwts) / 700 + 1).clip(
+                0, 1
+            )  # 1 until 300 then linear decay to 0 until 1000
             return molwts
         elif prop == "sa":
             sas = torch.tensor([safe(sascore.calculateScore, i, 10) for i in mols])

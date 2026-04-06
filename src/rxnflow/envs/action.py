@@ -3,21 +3,21 @@ import re
 from dataclasses import dataclass
 from functools import cached_property
 
-from .reaction import Reaction
+from ..gflownet.types import Action, ActionType
 
 
-class RxnActionType(enum.Enum):
+class RxnActionType(ActionType):
     # Forward actions
-    Stop = enum.auto()
-    UniRxn = enum.auto()
-    BiRxn = enum.auto()
     FirstBlock = enum.auto()
+    BiRxn = enum.auto()
+    UniRxn = enum.auto()
+    Stop = enum.auto()
 
     # Backward actions
-    BckStop = enum.auto()
-    BckUniRxn = enum.auto()
-    BckBiRxn = enum.auto()
     BckFirstBlock = enum.auto()
+    BckBiRxn = enum.auto()
+    BckUniRxn = enum.auto()
+    BckStop = enum.auto()
 
     @cached_property
     def cname(self) -> str:
@@ -32,66 +32,117 @@ class RxnActionType(enum.Enum):
         return self.name.startswith("Bck")
 
 
-class Protocol:
-    def __init__(
-        self,
-        name: str,
-        action: RxnActionType,
-        rxn: Reaction | None = None,
-    ):
-        self.name: str = name
-        self.action: RxnActionType = action
-        self._rxn: Reaction | None = rxn
-
-    def __str__(self) -> str:
-        return self.name
-
-    @property
-    def rxn(self) -> Reaction:
-        assert self._rxn is not None
-        return self._rxn
-
-
-@dataclass()
-class RxnAction:
+@dataclass(frozen=True, slots=True)
+class RxnAction(Action):
     """A single graph-building action
 
     Parameters
     ----------
     action: GraphActionType
         the action type
-    protocol: str
-        protocol name
     block: str, optional
         the block smi object
+    block_cluster_idx: int, optional
+        the block cluster idx in the workflow
+    block_idx: int, optional
+        the block idx in the cluster
     """
 
     action: RxnActionType
-    _protocol: str | None = None
-    _block: str | None = None
-    _block_idx: int | None = None
+    block: str = ""
+    block_cluster_idx: int = -1
+    block_idx: int = -1
+
+    def __post_init__(self):
+        # Validate the action parameters
+        assert self.block_cluster_idx >= -1, "Block cluster idx must be -1 or greater"
+        assert self.block_idx >= -1, "Block idx must be -1 or greater"
+
+        # Validate the action parameters for each action types
+        match self.action:
+            case RxnActionType.FirstBlock | RxnActionType.BckFirstBlock:
+                assert self.block != "", "Block must be set for FirstBlock action"
+                assert self.block_cluster_idx >= 0, (
+                    "Block cluster idx must be set for FirstBlock action"
+                )
+                assert self.block_idx >= 0, "Block idx must be set for FirstBlock action"
+            case RxnActionType.BiRxn | RxnActionType.BckBiRxn:
+                assert self.block != "", "Block must be set for BiRxn action"
+                assert self.block_cluster_idx >= 0, (
+                    "Block cluster idx must be set for BiRxn action"
+                )
+                assert self.block_idx >= 0, "Block idx must be set for BiRxn action"
+            case RxnActionType.UniRxn | RxnActionType.BckUniRxn:
+                assert self.block == "", "Block must not be set for UniRxn action"
+                assert self.block_cluster_idx == -1, (
+                    "Block cluster idx must not be set for UniRxn action"
+                )
+                assert self.block_idx == -1, "Block idx must not be set for UniRxn action"
 
     def __repr__(self):
-        return f"<{str(self)}>"
-
-    def __str__(self):
-        return f"<{self.action}> {self._protocol} - {self._block}({self._block_idx})"
+        return f"RxnAction({self.action}: {self.workflow}, {self.protocol_order}, {self.block}[{self.block_cluster_idx}, {self.block_idx}])"
 
     @property
     def is_fwd(self) -> bool:
-        return self.action in (RxnActionType.FirstBlock, RxnActionType.UniRxn, RxnActionType.BiRxn, RxnActionType.Stop)
+        return self.action in (
+            RxnActionType.FirstBlock,
+            RxnActionType.BiRxn,
+            RxnActionType.UniRxn,
+        )
+
+
+class Protocol:
+    action_type: RxnActionType
+
+    def __init__(
+        self,
+        name: str,
+        type: RxnActionType,
+        forward: str | None = None,
+        reverse: str | None = None,
+        block_type: str | None = None,
+    ):
+        # type check
+        match type:
+            case RxnActionType.FirstBlock:
+                assert block_type is not None and forward is None and reverse is None
+            case RxnActionType.BiRxn:
+                assert (
+                    block_type is not None and forward is not None and reverse is not None
+                )
+            case RxnActionType.UniRxn:
+                assert block_type is None and forward is not None and reverse is not None
+            case _:
+                raise ValueError(f"Unsupported action type: {type}")
+        self.name: str = name
+        self.type: RxnActionType = type
+        self._block_type: str | None = block_type
+        self._forward: str | None = forward
+        self._rxn_forward: Reaction | None = Reaction(forward) if forward else None
+        self._reverse: str | None = reverse
+        self._rxn_reverse: Reaction | None = Reaction(reverse) if reverse else None
 
     @property
-    def protocol(self) -> str:
-        assert self._protocol is not None
-        return self._protocol
+    def block_type(self) -> str:
+        assert self._block_type is not None
+        return self._block_type
 
     @property
-    def block(self) -> str:
-        assert self._block is not None
-        return self._block
+    def forward(self) -> str:
+        assert self._forward is not None
+        return self._forward
 
     @property
-    def block_idx(self) -> int:
-        assert self._block_idx is not None
-        return self._block_idx
+    def rxn_forward(self) -> Reaction:
+        assert self._rxn_forward is not None
+        return self._rxn_forward
+
+    @property
+    def reverse(self) -> str:
+        assert self._reverse is not None
+        return self._reverse
+
+    @property
+    def rxn_reverse(self) -> Reaction:
+        assert self._rxn_reverse is not None
+        return self._rxn_reverse

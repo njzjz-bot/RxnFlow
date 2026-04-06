@@ -2,25 +2,52 @@ import os
 import time
 from argparse import ArgumentParser
 
-from rxnflow.config import Config, init_empty
 from rxnflow.tasks.multi_pocket import ProxySampler
 from rxnflow.utils.download import download_pretrained_weight
+
+from rxnflow.config import Config, init_empty
 
 DEFAULT_CKPT = "qvina-unif-0-64"
 
 
 def parse_args():
-    parser = ArgumentParser("RxnFlow", description="(QED - Docking Proxy) Zero Shot Sampling with RxnFlow")
+    parser = ArgumentParser(
+        "RxnFlow", description="(QED - Docking Proxy) Zero Shot Sampling with RxnFlow"
+    )
     opt_cfg = parser.add_argument_group("Protein Config")
-    opt_cfg.add_argument("-p", "--protein", type=str, required=True, help="Protein PDB Path")
-    opt_cfg.add_argument("-l", "--ref_ligand", type=str, help="Reference Ligand Path (required if center is missing)")
-    opt_cfg.add_argument("-c", "--center", nargs="+", type=float, help="Pocket Center (--center X Y Z)")
+    opt_cfg.add_argument(
+        "-p", "--protein", type=str, required=True, help="Protein PDB Path"
+    )
+    opt_cfg.add_argument(
+        "-l",
+        "--ref_ligand",
+        type=str,
+        help="Reference Ligand Path (required if center is missing)",
+    )
+    opt_cfg.add_argument(
+        "-c", "--center", nargs="+", type=float, help="Pocket Center (--center X Y Z)"
+    )
 
     run_cfg = parser.add_argument_group("Operation Config")
-    run_cfg.add_argument("--model_path", type=str, help="Checkpoint Path", default="qvina-unif-0-64")
-    run_cfg.add_argument("-n", "--num_samples", type=int, default=100, help="Number of Samples (default: 100)")
-    run_cfg.add_argument("-o", "--out_path", type=str, required=True, help="Output Path (.csv | .smi)")
-    run_cfg.add_argument("--env_dir", type=str, default="./data/envs/catalog", help="Environment Directory Path")
+    run_cfg.add_argument(
+        "--model_path", type=str, help="Checkpoint Path", default="qvina-unif-0-64"
+    )
+    run_cfg.add_argument(
+        "-n",
+        "--num_samples",
+        type=int,
+        default=100,
+        help="Number of Samples (default: 100)",
+    )
+    run_cfg.add_argument(
+        "-o", "--out_path", type=str, required=True, help="Output Path (.csv | .smi)"
+    )
+    run_cfg.add_argument(
+        "--env_dir",
+        type=str,
+        default="./data/envs/catalog",
+        help="Environment Directory Path",
+    )
     run_cfg.add_argument(
         "--subsampling_ratio",
         type=float,

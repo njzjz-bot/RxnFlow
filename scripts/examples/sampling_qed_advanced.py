@@ -18,7 +18,9 @@ if __name__ == "__main__":
     # change the parameter except for temperature
     config = init_empty(Config())
     config.algo.num_from_policy = 100  # batch size: 64 -> 100
-    config.env_dir = "./data/envs/stock"  # if you want to use catalog, just remove this line
+    config.env_dir = (
+        "./data/envs/stock"  # if you want to use catalog, just remove this line
+    )
 
     # construct sampler
     sampler = QEDSampler(config, ckpt_path, DEVICE)

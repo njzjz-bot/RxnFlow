@@ -34,7 +34,10 @@ def main(block_path: str, save_block_path: str, num_cpus: int):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Get clean building blocks")
     parser.add_argument(
-        "-b", "--building_block_path", type=str, help="Path to input enamine building block file (.smi)"
+        "-b",
+        "--building_block_path",
+        type=str,
+        help="Path to input enamine building block file (.smi)",
     )
     parser.add_argument(
         "-o",

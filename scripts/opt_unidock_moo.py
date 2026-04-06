@@ -1,19 +1,37 @@
 from argparse import ArgumentParser
 
 import wandb
-from rxnflow.config import Config, init_empty
 from rxnflow.tasks.unidock_vina_moo import VinaMOOTrainer
 from rxnflow.utils.download import download_pretrained_weight
 
+from rxnflow.config import Config, init_empty
+
 
 def parse_args():
-    parser = ArgumentParser("RxnFlow", description="Vina-QED multi-objective optimization with GPU-accelerated UniDock")
+    parser = ArgumentParser(
+        "RxnFlow",
+        description="Vina-QED multi-objective optimization with GPU-accelerated UniDock",
+    )
     opt_cfg = parser.add_argument_group("Protein Config")
-    opt_cfg.add_argument("-p", "--protein", type=str, required=True, help="Protein PDB Path")
-    opt_cfg.add_argument("-l", "--ref_ligand", type=str, help="Reference Ligand Path (required if center is missing)")
-    opt_cfg.add_argument("-c", "--center", nargs="+", type=float, help="Pocket Center (--center X Y Z)")
     opt_cfg.add_argument(
-        "-s", "--size", nargs="+", type=float, help="Search Box Size (--size X Y Z)", default=(22.5, 22.5, 22.5)
+        "-p", "--protein", type=str, required=True, help="Protein PDB Path"
+    )
+    opt_cfg.add_argument(
+        "-l",
+        "--ref_ligand",
+        type=str,
+        help="Reference Ligand Path (required if center is missing)",
+    )
+    opt_cfg.add_argument(
+        "-c", "--center", nargs="+", type=float, help="Pocket Center (--center X Y Z)"
+    )
+    opt_cfg.add_argument(
+        "-s",
+        "--size",
+        nargs="+",
+        type=float,
+        help="Search Box Size (--size X Y Z)",
+        default=(22.5, 22.5, 22.5),
     )
     opt_cfg.add_argument(
         "--search_mode",
@@ -24,8 +42,15 @@ def parse_args():
     )
 
     run_cfg = parser.add_argument_group("Operation Config")
-    run_cfg.add_argument("--env_dir", type=str, default="./data/envs/catalog", help="Environment Directory Path")
-    run_cfg.add_argument("-o", "--out_dir", type=str, required=True, help="Output directory")
+    run_cfg.add_argument(
+        "--env_dir",
+        type=str,
+        default="./data/envs/catalog",
+        help="Environment Directory Path",
+    )
+    run_cfg.add_argument(
+        "-o", "--out_dir", type=str, required=True, help="Output directory"
+    )
     run_cfg.add_argument(
         "-n",
         "--num_iterations",
@@ -51,7 +76,9 @@ def run(args):
     config.log_dir = args.out_dir
 
     if args.pretrained_model is not None:
-        config.pretrained_model_path = str(download_pretrained_weight(args.pretrained_model))
+        config.pretrained_model_path = str(
+            download_pretrained_weight(args.pretrained_model)
+        )
 
     config.print_every = 1
     config.num_training_steps = args.num_iterations

@@ -16,7 +16,9 @@ def get_clean_smiles(smiles: str):
         return None
 
     # smi -> mol
-    mol = Chem.MolFromSmiles(smiles, replacements={"[C]": "C", "[CH]": "C", "[CH2]": "C", "[N]": "N"})
+    mol = Chem.MolFromSmiles(
+        smiles, replacements={"[C]": "C", "[CH]": "C", "[CH2]": "C", "[N]": "N"}
+    )
     try:
         assert mol is not None
         mol = Chem.RemoveHs(mol)

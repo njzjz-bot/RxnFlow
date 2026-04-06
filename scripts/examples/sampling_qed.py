@@ -1,8 +1,8 @@
 import time
 
 from opt_qed import QEDTask
-
 from rxnflow.base import RxnFlowSampler
+
 from rxnflow.config import Config, init_empty
 
 # NOTE: example setting
@@ -19,7 +19,9 @@ if __name__ == "__main__":
     # change config from training
     config = init_empty(Config())
     config.algo.num_from_policy = 100  # 64 -> 100
-    config.env_dir = "./data/envs/stock"  # if you want to use catalog, just remove this line
+    config.env_dir = (
+        "./data/envs/stock"  # if you want to use catalog, just remove this line
+    )
 
     ckpt_path = "./logs/example/qed/model_state.pt"
 

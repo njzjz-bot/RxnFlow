@@ -13,10 +13,20 @@ def main(block_path: str, save_block_path: str, num_cpus: int):
     print("Read SDF Files")
     with block_file.open() as f:
         lines = f.readlines()
-    smiles_list = [lines[i].strip() for i in tqdm(range(1, len(lines))) if lines[i - 1].startswith(">  <smiles>")]
-    ids = [lines[i].strip() for i in tqdm(range(1, len(lines))) if lines[i - 1].startswith(">  <id>")]
+    smiles_list = [
+        lines[i].strip()
+        for i in tqdm(range(1, len(lines)))
+        if lines[i - 1].startswith(">  <smiles>")
+    ]
+    ids = [
+        lines[i].strip()
+        for i in tqdm(range(1, len(lines)))
+        if lines[i - 1].startswith(">  <id>")
+    ]
 
-    assert len(smiles_list) == len(ids), "sdf file error, number of <smiles> and <id> should be matched"
+    assert len(smiles_list) == len(ids), (
+        "sdf file error, number of <smiles> and <id> should be matched"
+    )
     print("Including Mols:", len(smiles_list))
 
     print("Run Building Blocks...")
@@ -36,7 +46,10 @@ def main(block_path: str, save_block_path: str, num_cpus: int):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Get clean building blocks")
     parser.add_argument(
-        "-b", "--building_block_path", type=str, help="Path to input enamine building block file (.sdf)"
+        "-b",
+        "--building_block_path",
+        type=str,
+        help="Path to input enamine building block file (.sdf)",
     )
     parser.add_argument(
         "-o",

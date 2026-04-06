@@ -1,15 +1,17 @@
 import torch
+from gflownet import ObjectProperties
 from rdkit.Chem import QED
 from rdkit.Chem import Mol as RDMol
+from rxnflow.base import BaseTask, RxnFlowTrainer
 from torch import Tensor
 
-from gflownet import ObjectProperties
-from rxnflow.base import BaseTask, RxnFlowTrainer
 from rxnflow.config import Config, init_empty
 
 
 class QEDTask(BaseTask):
-    def compute_obj_properties(self, mols: list[RDMol]) -> tuple[ObjectProperties, Tensor]:
+    def compute_obj_properties(
+        self, mols: list[RDMol]
+    ) -> tuple[ObjectProperties, Tensor]:
         fr = torch.tensor([QED.qed(obj) for obj in mols], dtype=torch.float32)
         fr = fr.reshape(-1, 1)
         is_valid_t = torch.ones((len(mols),), dtype=torch.bool)

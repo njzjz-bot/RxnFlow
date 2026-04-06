@@ -1,18 +1,5 @@
 import logging
 import sys
-from pathlib import Path
-
-import gdown
-
-_WORKER = {}
-
-
-def set_worker_env(key, val):
-    _WORKER[key] = val
-
-
-def get_worker_env(key):
-    return _WORKER[key]
 
 
 def create_logger(name="logger", loglevel=logging.INFO, logfile=None, streamHandle=True):
@@ -33,9 +20,4 @@ def create_logger(name="logger", loglevel=logging.INFO, logfile=None, streamHand
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 
-    logger.propagate = False
     return logger
-
-
-def download_checkpoint(weight_dir: Path):
-    pass

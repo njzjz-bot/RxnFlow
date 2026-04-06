@@ -28,4 +28,6 @@ if __name__ == "__main__":
     parser.add_argument("--cpu", type=int, help="Num Workers")
     args = parser.parse_args()
 
-    get_block_data(args.building_block_path, args.template_path, args.save_directory, args.cpu)
+    get_block_data(
+        args.building_block_path, args.template_path, args.save_directory, args.cpu
+    )

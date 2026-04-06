@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 from rdkit import Chem
+from rxnflow.envs.building_block import get_block_features
 from tqdm import tqdm
 
-from rxnflow.envs.building_block import get_block_features
 from rxnflow.envs.reaction import Reaction
 
 
@@ -39,7 +39,9 @@ def run(args, reactions: list[Reaction]):
     return smiles, id, fp, desc, mask
 
 
-def get_block_data(block_path: str, template_path: str, save_directory_path: str, num_cpus: int):
+def get_block_data(
+    block_path: str, template_path: str, save_directory_path: str, num_cpus: int
+):
     save_directory = Path(save_directory_path)
     save_directory.mkdir(parents=True)
     save_template_path = save_directory / "template.txt"
@@ -65,7 +67,9 @@ def get_block_data(block_path: str, template_path: str, save_directory_path: str
 
     with open(template_path) as file:
         reaction_templates = file.readlines()
-    reactions = [Reaction(template=t.strip()) for t in reaction_templates]  # Reaction objects
+    reactions = [
+        Reaction(template=t.strip()) for t in reaction_templates
+    ]  # Reaction objects
     func = functools.partial(run, reactions=reactions)
 
     os.system(f"cp {template_path} {save_template_path}")
@@ -92,8 +96,12 @@ def get_block_data(block_path: str, template_path: str, save_directory_path: str
     building_block_descs = np.stack(desc_list, 0)
     building_block_fps = np.stack(fp_list, 0)
     print(f"Saving precomputed masks to of shape={all_mask.shape} to {save_mask_path}")
-    print(f"Saving precomputed RDKit Descriptors to of shape={building_block_descs.shape} to {save_desc_path}")
-    print(f"Saving precomputed Morgan/MACCS Fingerprints to of shape={building_block_fps.shape} to {save_fp_path}")
+    print(
+        f"Saving precomputed RDKit Descriptors to of shape={building_block_descs.shape} to {save_desc_path}"
+    )
+    print(
+        f"Saving precomputed Morgan/MACCS Fingerprints to of shape={building_block_fps.shape} to {save_fp_path}"
+    )
     np.save(save_mask_path, all_mask)
     np.save(save_desc_path, building_block_descs)
     np.save(save_fp_path, building_block_fps)

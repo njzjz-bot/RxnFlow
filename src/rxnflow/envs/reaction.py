@@ -5,172 +5,138 @@ from rdkit.Chem.rdChemReactions import ChemicalReaction, ReactionFromSmarts
 
 class Reaction:
     def __init__(self, template: str):
-        self.template: str = template
-        self._rxn_forward: ChemicalReaction = ReactionFromSmarts(template)
-        ChemicalReaction.Initialize(self._rxn_forward)
-        self.num_reactants: int = self._rxn_forward.GetNumReactantTemplates()
-        self.num_products: int = self._rxn_forward.GetNumProductTemplates()
+        self._rxn: ChemicalReaction = self.__init_reaction(template)
+        self.num_reactants: int = self._rxn.GetNumReactantTemplates()
+        self.pattern: str = template
 
-        self.reactant_pattern: list[RDMol] = []
-        for i in range(self.num_reactants):
-            self.reactant_pattern.append(self._rxn_forward.GetReactantTemplate(i))
+    def __init_reaction(self, template: str) -> ChemicalReaction:
+        """Initializes a reaction by converting the SMARTS-pattern to an `rdkit` object."""
+        rxn = ReactionFromSmarts(template)
+        ChemicalReaction.Initialize(rxn)
+        return rxn
 
-        # set reverse reaction
-        self._rxn_reverse = ChemicalReaction()
-        for i in range(self.num_reactants):
-            self._rxn_reverse.AddProductTemplate(self._rxn_forward.GetReactantTemplate(i))
-        for i in range(self.num_products):
-            self._rxn_reverse.AddReactantTemplate(self._rxn_forward.GetProductTemplate(i))
-        self._rxn_reverse.Initialize()
-
-    def is_reactant(self, mol: RDMol, order: int | None = None) -> bool:
+    def is_reactant(self, mol: RDMol, order: int) -> bool:
         """Checks if a molecule is the reactant for the reaction."""
-        if order is None:
-            return self._rxn_forward.IsMoleculeReactant(mol)
-        else:
-            return mol.HasSubstructMatch(self.reactant_pattern[order])
+        # return mol.HasSubstructMatch(self.reactant_pattern[order])
+        return mol.HasSubstructMatch(self._rxn.GetReactantTemplate(order))
 
-    def is_product(self, mol: RDMol) -> bool:
-        """Checks if a molecule is the product for the reaction."""
-        return self._rxn_forward.IsMoleculeProduct(mol)
+    def __call__(self, *reactants: RDMol) -> list[list[RDMol]]:
+        """Runs the reaction on a set of reactants and returns the product.
 
-    def forward(self, *reactants: RDMol, strict: bool = False) -> list[tuple[RDMol, ...]]:
-        """Perform in-silico reactions"""
-        assert (
-            len(reactants) == self.num_reactants
-        ), f"number of inputs should be same to the number of reactants ({len(reactants)} vs {self.num_reactants})"
-        ps = _run_reaction(self._rxn_forward, reactants, self.num_reactants, self.num_products)
-        if strict:
-            assert len(ps) > 0, "ChemicalReaction did not yield any products."
-        return ps
+        Args:
+            *reactants: RDMol
+                reactants
 
-    def reverse(self, product: RDMol, strict: bool = False) -> list[tuple[RDMol, ...]]:
-        """Perform in-silico reactions"""
-        rs = _run_reaction(self._rxn_reverse, (product,), self.num_products, self.num_reactants)
-        if strict:
-            assert len(rs) > 0, "ChemicalReaction did not yield any reactants."
-        return rs
+        Returns:
+            producs: list[list[RDMol]]
+                The products of the reaction.
+        """
+        return self.forward(*reactants)
 
-    def forward_smi(self, *reactants: RDMol, strict: bool = False) -> list[tuple[str, ...]]:
-        """Perform in-silico reactions"""
-        assert (
-            len(reactants) == self.num_reactants
-        ), f"number of inputs should be same to the number of reactants ({len(reactants)} vs {self.num_reactants})"
-        ps = _run_reaction_smi(self._rxn_forward, reactants, self.num_reactants, self.num_products)
-        if strict:
-            assert len(ps) > 0, "ChemicalReaction did not yield any products."
-        return ps
+    def forward(self, *reactants: RDMol, strict: bool = True) -> list[list[RDMol]]:
+        """Runs the reaction on a set of reactants and returns the product.
 
-    def reverse_smi(self, product: RDMol, strict: bool = False) -> list[tuple[str, ...]]:
-        """Perform in-silico reactions"""
-        rs = _run_reaction_smi(self._rxn_reverse, (product,), self.num_products, self.num_reactants)
-        if strict:
-            assert len(rs) > 0, "ChemicalReaction did not yield any reactants."
-        return rs
+        Args:
+            *reactants: reactants
 
+        Returns:
+            producs: list[list[RDMol]]
+                The products of the reaction.
+        """
 
-class UniReaction(Reaction):
-    def __init__(self, template: str):
-        super().__init__(template)
-        assert self.num_reactants == 1
-        assert self.num_products == 1
+        # Run reaction
+        assert len(reactants) == self.num_reactants
+        ps: list[list[RDMol]] = self._rxn.RunReactants(tuple(reactants), 10)
+        if strict and len(ps) == 0:
+            # Logging for debugging.
+            logger.error(
+                "Reaction did not yield any products. Reactants: {}, SMARTS: {}",
+                [Chem.MolToSmiles(mol) for mol in reactants],
+                self.pattern,
+            )
+            raise ValueError("Reaction did not yield any products.")
 
+        refine_ps: list[list[RDMol]] = []
+        for p in ps:
+            _p = []
+            for mol in p:
+                try:
+                    mol = _refine_molecule(mol)
+                except (
+                    Chem.rdchem.KekulizeException,
+                    Chem.rdchem.AtomKekulizeException,
+                    Chem.rdchem.AtomValenceException,
+                ):
+                    continue
+                _p.append(mol)
+            if len(_p) == len(p):
+                refine_ps.append(_p)
+        refine_ps = _deduplicate_products(refine_ps)
+        return refine_ps
 
-class BiReaction(Reaction):
-    def __init__(self, template: str, is_block_first: bool):
-        super().__init__(template)
-        self.block_order: int = 0 if is_block_first else 1
-        assert self.num_reactants == 2
-        assert self.num_products == 1
+    def forward_smi(
+        self, *reactants: RDMol, strict: bool = True
+    ) -> list[tuple[str, ...]]:
+        """Runs the reaction on a set of reactants and returns the product.
 
-    def is_reactant(self, mol: RDMol, order: int | None = None) -> bool:
-        """Checks if a molecule is the reactant for the reaction."""
-        if order is not None:
-            if self.block_order == 0:
-                order = 1 - order
-        return super().is_reactant(mol, order)
+        Args:
+            *reactants: reactants
 
-    def forward(self, *reactants: RDMol, strict: bool = False) -> list[tuple[RDMol, ...]]:
-        if self.block_order == 0:
-            reactants = tuple(reversed(reactants))
-        return super().forward(*reactants, strict=strict)
+        Returns:
+            producs: list[list[str]]
+                The smiles of products of the reaction.
+        """
 
-    def reverse(self, product: RDMol, strict: bool = False) -> list[tuple[RDMol, ...]]:
-        rs = super().reverse(product, strict=strict)
-        if self.block_order == 0:
-            rs = [(r[1], r[0]) for r in rs]
-        return rs
+        # Run reaction
+        assert len(reactants) == self.num_reactants
+        ps: list[list[RDMol]] = self._rxn.RunReactants(tuple(reactants), 10)
+        if strict and len(ps) == 0:
+            # Logging for debugging.
+            logger.error(
+                "Reaction did not yield any products. Reactants: {}, SMARTS: {}",
+                [Chem.MolToSmiles(mol) for mol in reactants],
+                self.pattern,
+            )
+            raise ValueError("Reaction did not yield any products.")
 
-
-def _run_reaction(
-    reaction: ChemicalReaction,
-    reactants: tuple[RDMol, ...],
-    num_reactants: int,
-    num_products: int,
-) -> list[tuple[RDMol, ...]]:
-    """Perform in-silico reactions"""
-    assert len(reactants) == num_reactants
-    ps: list[list[RDMol]] = reaction.RunReactants(reactants, 5)
-
-    # refine products
-    refine_ps: list[tuple[RDMol, ...]] = []
-    for p in ps:
-        if not len(p) == num_products:
-            continue
-        _ps = []
-        for mol in p:
-            mol = _refine_mol(mol)
-            if mol is None:
-                break
-            _ps.append(mol)
-        if len(_ps) == num_products:
-            refine_ps.append(tuple(_ps))
-
-    # remove redundant products
-    unique_ps = []
-    _storage = set()
-    for p in refine_ps:
-        key = tuple(Chem.MolToSmiles(mol) for mol in p)
-        if key not in _storage:
-            _storage.add(key)
-            unique_ps.append(p)
-    return unique_ps
+        refine_ps: list[tuple[str, ...]] = []
+        for p in ps:
+            _p: list[str] = []
+            for mol in p:
+                try:
+                    mol = Chem.RemoveHs(mol, updateExplicitCount=True)
+                    smi = Chem.MolToSmiles(mol)
+                except (
+                    Chem.rdchem.KekulizeException,
+                    Chem.rdchem.AtomKekulizeException,
+                    Chem.rdchem.AtomValenceException,
+                ):
+                    break
+                smi = smi.replace("[CH]", "C")
+                _p.append(smi)
+            if len(_p) == len(p):
+                refine_ps.append(tuple(_p))
+        return list(set(refine_ps))
 
 
-def _run_reaction_smi(
-    reaction: ChemicalReaction,
-    reactants: tuple[RDMol, ...],
-    num_reactants: int,
-    num_products: int,
-) -> list[tuple[str, ...]]:
-    """Perform in-silico reactions"""
-    assert len(reactants) == num_reactants
-    ps: list[list[RDMol]] = reaction.RunReactants(reactants, 5)
-
-    # refine products
-    refine_ps: list[tuple[str, ...]] = []
-    for p in ps:
-        if not len(p) == num_products:
-            continue
-        _ps = []
-        for mol in p:
-            try:
-                mol = Chem.RemoveHs(mol, updateExplicitCount=True)
-                smi = Chem.MolToSmiles(mol)
-            except Exception:
-                break
-            smi = smi.replace("[C]", "C").replace("[N]", "N").replace("[CH]", "C")
-            _ps.append(smi)
-        if len(_ps) == num_products:
-            refine_ps.append(tuple(_ps))
-    return list(set(refine_ps))
+def _refine_molecule(mol: Chem.Mol) -> Chem.Mol | None:
+    mol = Chem.RemoveHs(mol)
+    smi = Chem.MolToSmiles(mol)
+    if "[CH]" in smi:
+        smi = smi.replace("[CH]", "C")
+    return Chem.MolFromSmiles(smi)
 
 
-def _refine_mol(mol: RDMol) -> RDMol | None:
-    try:
-        mol = Chem.RemoveHs(mol, updateExplicitCount=True)
-        smi = Chem.MolToSmiles(mol)
-        mol = Chem.MolFromSmiles(smi, replacements={"[C]": "C", "[N]": "N", "[CH]": "C"})
-    except Exception:
-        return None
-    return mol
+def _deduplicate_products(products: list[list[RDMol]]) -> list[list[RDMol]]:
+    """Remove redundant cases from a `RunReactants` output.
+
+    Compares each `list[Mol]` and leave only unique ones.
+    """
+    unique_cases: list[list[RDMol]] = []
+    seen_cases: set[frozenset[str]] = set()
+    for case in products:
+        smi_in_case = frozenset(Chem.MolToSmiles(mol) for mol in case)
+        if smi_in_case not in seen_cases:
+            seen_cases.add(smi_in_case)
+            unique_cases.append(case)
+    return unique_cases

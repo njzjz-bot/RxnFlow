@@ -6,7 +6,7 @@ from typing import Self
 
 from rdkit import Chem
 
-from rxnflow.envs.action import Protocol, RxnAction, RxnActionType
+from .action import Protocol, RxnAction, RxnActionType
 
 
 class RetroSynthesisTree:
@@ -44,7 +44,9 @@ class RetroSynthesisTree:
             if not child.is_leaf:
                 child.print(indent + 4)
 
-    def iteration(self, prev_traj: list[RxnAction] | None = None) -> Iterable[list[RxnAction]]:
+    def iteration(
+        self, prev_traj: list[RxnAction] | None = None
+    ) -> Iterable[list[RxnAction]]:
         prev_traj = prev_traj if prev_traj else []
         if self.is_leaf:
             yield prev_traj
@@ -164,7 +166,9 @@ class RetroSyntheticAnalyzer:
             if protocol.action is RxnActionType.FirstBlock:
                 block_idx = self.block_search(smiles)
                 if block_idx is not None:
-                    bck_action = RxnAction(RxnActionType.FirstBlock, protocol.name, smiles, block_idx)
+                    bck_action = RxnAction(
+                        RxnActionType.FirstBlock, protocol.name, smiles, block_idx
+                    )
                     branches.append((bck_action, RetroSynthesisTree("")))
                     self.__min_depth = depth
                     is_block = True
@@ -179,12 +183,16 @@ class RetroSyntheticAnalyzer:
             elif protocol.action is RxnActionType.BiRxn:
                 if not self.check_depth(depth + 1):
                     continue
-                for child_smi, block_smi in protocol.rxn.reverse_smi(mol)[: self.max_decomposes]:
+                for child_smi, block_smi in protocol.rxn.reverse_smi(mol)[
+                    : self.max_decomposes
+                ]:
                     block_idx = self.block_search(block_smi)
                     if block_idx is not None:
                         child_tree = self.__dfs(child_smi, depth + 1)
                         if child_tree is not None:
-                            bck_action = RxnAction(RxnActionType.BiRxn, protocol.name, block_smi, block_idx)
+                            bck_action = RxnAction(
+                                RxnActionType.BiRxn, protocol.name, block_smi, block_idx
+                            )
                             branches.append((bck_action, child_tree))
 
         # return None if retrosynthetically inaccessible
@@ -231,7 +239,9 @@ class Cache:
 
 class MultiRetroSyntheticAnalyzer:
     def __init__(self, analyzer, num_workers: int = 4):
-        self.pool = ProcessPoolExecutor(num_workers, initializer=self._init_worker, initargs=(analyzer,))
+        self.pool = ProcessPoolExecutor(
+            num_workers, initializer=self._init_worker, initargs=(analyzer,)
+        )
         self.futures = []
 
     @classmethod
@@ -263,11 +273,15 @@ class MultiRetroSyntheticAnalyzer:
         max_rxns: int,
         known_branches: list[tuple[RxnAction, RetroSynthesisTree]],
     ):
-        self.futures.append(self.pool.submit(self._worker, key, mol, max_rxns, known_branches))
+        self.futures.append(
+            self.pool.submit(self._worker, key, mol, max_rxns, known_branches)
+        )
 
     def result(self) -> list[tuple[int, RetroSynthesisTree]]:
         try:
-            done, _ = concurrent.futures.wait(self.futures, return_when=concurrent.futures.FIRST_EXCEPTION)
+            done, _ = concurrent.futures.wait(
+                self.futures, return_when=concurrent.futures.FIRST_EXCEPTION
+            )
             result = [future.result() for future in done]
             self.futures = []
             return result

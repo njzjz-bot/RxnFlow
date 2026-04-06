@@ -1,20 +1,31 @@
 from argparse import ArgumentParser
 
 import wandb
-from rxnflow.config import Config, init_empty
 from rxnflow.tasks.multi_pocket import ProxyTrainer_MultiPocket
+
+from rxnflow.config import Config, init_empty
 
 
 def parse_args():
     parser = ArgumentParser("RxnFlow", description="Pocket-conditional GFlowNet training")
     opt_cfg = parser.add_argument_group("Pocket DB")
     opt_cfg.add_argument(
-        "--db", type=str, default="./data/experiments/CrossDocked2020/train_db.pt", help="Pocket DB Path"
+        "--db",
+        type=str,
+        default="./data/experiments/CrossDocked2020/train_db.pt",
+        help="Pocket DB Path",
     )
 
     run_cfg = parser.add_argument_group("Operation Config")
-    run_cfg.add_argument("--env_dir", type=str, default="./data/envs/catalog", help="Environment Directory Path")
-    run_cfg.add_argument("-o", "--out_dir", type=str, required=True, help="Output directory")
+    run_cfg.add_argument(
+        "--env_dir",
+        type=str,
+        default="./data/envs/catalog",
+        help="Environment Directory Path",
+    )
+    run_cfg.add_argument(
+        "-o", "--out_dir", type=str, required=True, help="Output directory"
+    )
     run_cfg.add_argument(
         "-n",
         "--num_iterations",

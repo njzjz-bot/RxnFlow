@@ -4,15 +4,20 @@ import time
 from argparse import ArgumentParser
 from pathlib import Path
 
-from rxnflow.config import Config, init_empty
 from rxnflow.tasks.unidock_vina import VinaSampler
+
+from rxnflow.config import Config, init_empty
 
 
 def parse_args():
     parser = ArgumentParser("RxnFlow", description="Inference Sampling with RxnFlow")
     run_cfg = parser.add_argument_group("Operation Config")
-    run_cfg.add_argument("-m", "--model_path", type=str, required=True, help="Model Checkpoitn Path")
-    run_cfg.add_argument("-n", "--num_samples", type=int, required=True, help="Number of Samples")
+    run_cfg.add_argument(
+        "-m", "--model_path", type=str, required=True, help="Model Checkpoitn Path"
+    )
+    run_cfg.add_argument(
+        "-n", "--num_samples", type=int, required=True, help="Number of Samples"
+    )
     run_cfg.add_argument(
         "-o",
         "--out_path",
@@ -31,10 +36,22 @@ def parse_args():
 
     opt_cfg = parser.add_argument_group("Protein Config (overwrite training setting)")
     opt_cfg.add_argument("-p", "--protein", type=str, help="Protein PDB Path")
-    opt_cfg.add_argument("-c", "--center", nargs="+", type=float, help="Pocket Center (--center X Y Z)")
-    opt_cfg.add_argument("-l", "--ref_ligand", type=str, help="Reference Ligand Path (required if center is missing)")
     opt_cfg.add_argument(
-        "-s", "--size", nargs="+", type=float, help="Search Box Size (--size X Y Z)", default=(22.5, 22.5, 22.5)
+        "-c", "--center", nargs="+", type=float, help="Pocket Center (--center X Y Z)"
+    )
+    opt_cfg.add_argument(
+        "-l",
+        "--ref_ligand",
+        type=str,
+        help="Reference Ligand Path (required if center is missing)",
+    )
+    opt_cfg.add_argument(
+        "-s",
+        "--size",
+        nargs="+",
+        type=float,
+        help="Search Box Size (--size X Y Z)",
+        default=(22.5, 22.5, 22.5),
     )
     return parser.parse_args()
 

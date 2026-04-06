@@ -1,204 +1,230 @@
-from functools import cached_property
 from pathlib import Path
+from typing import Any
 
-import numpy as np
-from numpy.typing import NDArray
+import pandas as pd
+from omegaconf import DictConfig, OmegaConf
 from rdkit import Chem, RDLogger
-from rdkit.Chem import Mol as RDMol
 
-from gflownet.envs.graph_building_env import Graph, GraphBuildingEnv
+from ..gflownet.types import GFNEnvironment
+from .action import RxnAction, RxnActionType
+from .workflow import Protocol, Workflow
 
-from .action import Protocol, RxnAction, RxnActionType
-from .reaction import BiReaction, Reaction, UniReaction
-from .retrosynthesis import MultiRetroSyntheticAnalyzer
-
-logger = RDLogger.logger()
 RDLogger.DisableLog("rdApp.*")
 
 
-class MolGraph(Graph):
-    def __init__(self, mol: str | Chem.Mol, **kwargs):
-        super().__init__(**kwargs)
-        self._mol: str | Chem.Mol = mol
-        self.is_setup: bool = False
+class MolGraph:
+    mol: Chem.Mol
+    smi: str
+
+    def __init__(self, mol: str | Chem.Mol = ""):
+        if isinstance(mol, Chem.Mol):
+            self.mol = mol
+            self.smi = Chem.MolToSmiles(mol)
+        else:
+            self.mol = Chem.MolFromSmiles(mol)
+            self.smi = mol
+        self.graph_cache: Any = None
+
+    @property
+    def num_atoms(self) -> int:
+        return self.mol.GetNumHeavyAtoms()
 
     def __repr__(self):
-        return self.smi
+        return f"MolGraph({self.smi})"
 
-    @cached_property
-    def smi(self) -> str:
-        if isinstance(self._mol, Chem.Mol):
-            return Chem.MolToSmiles(self._mol)
-        else:
-            return self._mol
+    def __getstate__(self):
+        """Get the state of the object for pickling."""
+        state = self.__dict__.copy()
+        # remove the RDKit Mol object and data cache for pickling
+        state.pop("mol", None)
+        state.pop("graph_cache", None)
+        return state
 
-    @cached_property
-    def mol(self) -> Chem.Mol:
-        if isinstance(self._mol, Chem.Mol):
-            return self._mol
-        else:
-            return Chem.MolFromSmiles(self._mol)
+    def __setstate__(self, state):
+        """Set the state of the object after unpickling."""
+        self.__dict__.update(state)
+        # Recreate the RDKit Mol object from the SMILES string
+        self.mol = Chem.MolFromSmiles(self.smi)
+        if self.mol is None:
+            raise ValueError(f"Invalid SMILES string: {self.smi}")
+        # Initialize data cache
+        self.graph_cache = None
 
 
-class SynthesisEnv(GraphBuildingEnv):
+class SynthesisEnv(GFNEnvironment[MolGraph, RxnAction]):
     """Molecules and reaction templates environment. The new (initial) state are Empty Molecular Graph.
 
     This environment specifies how to obtain new molecules from applying reaction templates to current molecules. Works by
     having the agent select a reaction template. Masks ensure that only valid templates are selected.
     """
 
-    def __init__(self, env_dir: str | Path, num_workers: int = 4):
-        """Environment for Synthesis-oriented generation
-
-        Parameters
-        ----------
-        env_dir : str | Path
-            root directory of synthesis environment
-        num_workers : int
-            number of workers for retrosynthetic analysis
-        """
+    def __init__(self, env_dir: str | Path):
         """A reaction template and building block environment instance"""
         self.env_dir = env_dir = Path(env_dir)
-        reaction_template_path = env_dir / "template.txt"
-        building_block_path = env_dir / "building_block.smi"
-        pre_computed_building_block_mask_path = env_dir / "bb_mask.npy"
-        pre_computed_building_block_fp_path = env_dir / "bb_fp_2_1024.npy"
-        pre_computed_building_block_desc_path = env_dir / "bb_desc.npy"
 
-        # set protocol
-        self.protocols: list[Protocol] = []
-        self.protocols.append(Protocol("stop", RxnActionType.Stop))
-        self.protocols.append(Protocol("firstblock", RxnActionType.FirstBlock))
-        with reaction_template_path.open() as file:
-            reaction_templates = [ln.strip() for ln in file.readlines()]
-        for i, template in enumerate(reaction_templates):
-            _rxn = Reaction(template)
-            if _rxn.num_reactants == 1:
-                rxn = UniReaction(template)
-                self.protocols.append(Protocol(f"unirxn{i}", RxnActionType.UniRxn, _rxn))
-            elif _rxn.num_reactants == 2:
-                for block_is_first in [True, False]:  # this order is important
-                    rxn = BiReaction(template, block_is_first)
-                    self.protocols.append(Protocol(f"birxn{i}_{block_is_first}", RxnActionType.BiRxn, rxn))
-        self.protocol_dict: dict[str, Protocol] = {protocol.name: protocol for protocol in self.protocols}
-        self.stop_list: list[Protocol] = [p for p in self.protocols if p.action is RxnActionType.Stop]
-        self.firstblock_list: list[Protocol] = [p for p in self.protocols if p.action is RxnActionType.FirstBlock]
-        self.unirxn_list: list[Protocol] = [p for p in self.protocols if p.action is RxnActionType.UniRxn]
-        self.birxn_list: list[Protocol] = [p for p in self.protocols if p.action is RxnActionType.BiRxn]
+        workflow_config_path = env_dir / "workflow_map.csv"
+        protocol_config_path = env_dir / "protocol.yaml"
+        workflow_config: pd.DataFrame = pd.read_csv(workflow_config_path, index_col=0)
+        protocol_config: DictConfig = OmegaConf.load(protocol_config_path)
+        # first set protocols
+        all_protocols: list[Protocol] = []
+        for type_str, cfg_dict in protocol_config.items():
+            match str(type_str):
+                case "FirstBlock":
+                    action_type = RxnActionType.FirstBlock
+                case "BiRxn":
+                    action_type = RxnActionType.BiRxn
+                case "UniRxn":
+                    action_type = RxnActionType.UniRxn
+                case _:
+                    raise ValueError(type_str)
+            for name, cfg in cfg_dict.items():
+                all_protocols.append(Protocol(name, action_type, **cfg))
+        protocol_dict: dict[str, Protocol] = {
+            protocol.name: protocol for protocol in all_protocols
+        }
 
-        # set building blocks
-        with building_block_path.open() as file:
-            lines = file.readlines()
-            building_blocks = [ln.split()[0] for ln in lines]
-            building_block_ids = [ln.strip().split()[1] for ln in lines]
-        self.blocks: list[str] = building_blocks
-        self.block_ids: list[str] = building_block_ids
-        self.num_blocks: int = len(building_blocks)
-
-        # set precomputed building block feature
-        self.block_fp = np.load(pre_computed_building_block_fp_path)
-        self.block_prop = np.load(pre_computed_building_block_desc_path)
-
-        # set block mask
-        block_mask: NDArray[np.bool_] = np.load(pre_computed_building_block_mask_path)
-        self.birxn_block_indices: dict[str, np.ndarray] = {}
-        for i, protocol in enumerate(self.birxn_list):
-            self.birxn_block_indices[protocol.name] = np.where(block_mask[i])[0]
-        self.num_total_actions = (
-            1 + len(self.unirxn_list) + sum(indices.shape[0] for indices in self.birxn_block_indices.values())
-        )
-
-        self.retro_analyzer = MultiRetroSyntheticAnalyzer.create(self.protocols, self.blocks, num_workers=num_workers)
+        # then load workflows
+        self.workflows: list[Workflow] = []
+        for workflow_id, row in workflow_config.iterrows():
+            workflow_id = str(workflow_id)
+            workflow_name = str(row["workflow name"])
+            protocols = [
+                protocol_dict[str(p)]
+                for p in [row["protocol 1"], row["protocol 2"], row["protocol 3"]]
+                if pd.notna(p)
+            ]
+            self.workflows.append(Workflow(workflow_id, workflow_name, protocols))
+        self.workflow_dict: dict[str, Workflow] = {
+            workflow.id: workflow for workflow in self.workflows
+        }
+        self.num_workflows: int = len(self.workflow_dict)
 
     def new(self) -> MolGraph:
+        """get initial graph"""
         return MolGraph("")
 
     def step(self, g: MolGraph, action: RxnAction) -> MolGraph:
         """Applies the action to the current state and returns the next state.
 
-        Args:
-            mol (Chem.Mol): Current state as an RDKit mol.
-            action tuple[int, Optional[int], Optional[int]]: Action indices to apply to the current state.
-            (ActionType, reaction_template_idx, reactant_idx)
-
-        Returns:
-            (Chem.Mol): Next state as an RDKit mol.
-        """
-        state_info = g.graph
-        protocol = self.protocol_dict[action.protocol]
-
-        if action.action is RxnActionType.Stop:
-            return g
-        elif action.action is RxnActionType.BckStop:
-            return g
-
-        elif action.action == RxnActionType.FirstBlock:
-            obj = action.block
-        elif action.action == RxnActionType.BckFirstBlock:
-            obj = ""
-
-        elif action.action is RxnActionType.UniRxn:
-            ps = protocol.rxn.forward(g.mol, strict=True)
-            assert len(ps) > 0, "reaction is Fail"
-            obj = Chem.MolToSmiles(ps[0][0])
-        elif action.action is RxnActionType.BckUniRxn:
-            rs = protocol.rxn.reverse(g.mol)[0]
-            assert len(rs) > 0, "reverse reaction is Fail"
-            obj = Chem.MolToSmiles(rs[0])
-
-        elif action.action is RxnActionType.BiRxn:
-            block = Chem.MolFromSmiles(action.block)
-            ps = protocol.rxn.forward(g.mol, block, strict=True)
-            assert len(ps) > 0, "forward reaction is Fail"
-            obj = Chem.MolToSmiles(ps[0][0])
-        elif action.action is RxnActionType.BckBiRxn:
-            rs = protocol.rxn.reverse(g.mol)[0]
-            assert len(rs) > 0, "reverse reaction is Fail"
-            obj = Chem.MolToSmiles(rs[0])
-
-        else:
-            raise ValueError(action.action)
-        return MolGraph(obj, **state_info)
-
-    def parents(self, mol: RDMol, max_depth: int = 4) -> list[tuple[RxnAction, str]]:
-        """list possible parents of molecule `mol`
-
         Parameters
         ----------
-        mol: Chem.Mol
-            molecule
+        g: MolGraph
+            The current state of the environment, which is a molecular graph.
+        action: RxnAction
+            The action to be applied to the current state.
 
         Returns
         -------
-        parents: list[Pair(RxnAction, str)]
-            The list of parent-action pairs
+        MolGraph
+            The next state of the environment after applying the action.
         """
-        raise NotImplementedError
-        retro_tree = self.retrosynthetic_analyzer.run(mol, max_depth)
-        return [(action, subtree.smi) for action, subtree in retro_tree.branches]
+        match action.action:
+            case RxnActionType.SetWorkflow:
+                assert g.smi == "", "SetWorkflow should be called on empty graph"
+                assert g.workflow == "", "SetWorkflow should be called on empty graph"
+                assert g.traj_idx == 0, "SetWorkflow should be called on empty graph"
+                return MolGraph(workflow=action.workflow, traj_idx=1)
 
-    def count_backward_transitions(self, mol: RDMol, check_idempotent: bool = False):
-        """Counts the number of parents of molecule (by default, without checking for isomorphisms)"""
-        # We can count actions backwards easily, but only if we don't check that they don't lead to
-        # the same parent. To do so, we need to enumerate (unique) parents and count how many there are:
-        return len(self.parents(mol))
+            case RxnActionType.FirstBlock:
+                assert g.workflow == action.workflow, "Workflow should be same"
+                assert g.smi == "", "FirstBlock should be called on empty graph"
+                assert g.traj_idx == 1, (
+                    "FirstBlock should be the second action in the trajectory"
+                )
+                return MolGraph(mol=action.block, workflow=action.workflow, traj_idx=2)
 
-    def reverse(self, g: str | RDMol | Graph | None, ra: RxnAction) -> RxnAction:
-        if ra.action == RxnActionType.Stop:
-            return RxnAction(RxnActionType.BckStop, ra.protocol)
-        elif ra.action == RxnActionType.BckStop:
-            return RxnAction(RxnActionType.Stop, ra.protocol)
-        elif ra.action == RxnActionType.FirstBlock:
-            return RxnAction(RxnActionType.BckFirstBlock, ra.protocol, ra.block, ra.block_idx)
-        elif ra.action == RxnActionType.BckFirstBlock:
-            return RxnAction(RxnActionType.FirstBlock, ra.protocol, ra.block, ra.block_idx)
-        elif ra.action == RxnActionType.UniRxn:
-            return RxnAction(RxnActionType.BckUniRxn, ra.protocol)
-        elif ra.action == RxnActionType.BckUniRxn:
-            return RxnAction(RxnActionType.UniRxn, ra.protocol)
-        elif ra.action == RxnActionType.BiRxn:
-            return RxnAction(RxnActionType.BckBiRxn, ra.protocol, ra.block, ra.block_idx)
-        elif ra.action == RxnActionType.BckBiRxn:
-            return RxnAction(RxnActionType.BiRxn, ra.protocol, ra.block, ra.block_idx)
-        else:
-            raise ValueError(ra)
+            case RxnActionType.BiRxn:
+                assert g.workflow == action.workflow, "workflow should be same"
+                assert g.smi != "", "BiRxn should not be called on empty graph"
+                assert g.traj_idx > 1, (
+                    "BiRxn should be called after SetWorkflow and FirstBlock"
+                )
+                workflow = self.workflow_dict[action.workflow]
+                protocol = workflow[action.protocol_order]
+                block = Chem.MolFromSmiles(action.block)
+                ps = protocol.rxn_forward(g.mol, block)
+                if len(ps) != 1:
+                    logger.error(
+                        "Multiple or no products from reactant: {} block: {} reaction: {}",
+                        Chem.MolToSmiles(g.mol),
+                        Chem.MolToSmiles(block),
+                        protocol.forward,
+                    )
+                    raise RuntimeError("Multiple or no products from reactant")
+                return MolGraph(
+                    mol=ps[0][0], workflow=action.workflow, traj_idx=g.traj_idx + 1
+                )
+
+            case RxnActionType.UniRxn:
+                assert g.workflow == action.workflow, "Workflow should be same"
+                assert g.smi != "", "UniRxn should not be called on empty graph"
+                assert g.traj_idx > 1, (
+                    "UniRxn should be called after SetWorkflow and FirstBlock"
+                )
+                assert action.block == "", "Block should not be set for UniRxn"
+                workflow = self.workflow_dict[action.workflow]
+                protocol = workflow[action.protocol_order]
+                ps = protocol.rxn_forward(g.mol)
+                if len(ps) != 1:
+                    logger.error(
+                        "Multiple or no products from reactant: {} reaction: {}",
+                        Chem.MolToSmiles(g.mol),
+                        protocol.forward,
+                    )
+                    raise RuntimeError("Multiple or no products from reactant")
+                return MolGraph(
+                    mol=ps[0][0], workflow=action.workflow, traj_idx=g.traj_idx + 1
+                )
+
+            case _:
+                raise ValueError(action.action)
+
+    def reverse(self, ra: RxnAction) -> RxnAction:
+        """Returns the reverse action of the given action."""
+        raise RuntimeWarning("Reverse actions are not used in RxnFlow")
+        match ra.action:
+            case RxnActionType.SetWorkflow:
+                return RxnAction(RxnActionType.BckFirstBlock, ra.workflow)
+            case RxnActionType.BckSetWorkflow:
+                return RxnAction(RxnActionType.FirstBlock, ra.workflow)
+            case RxnActionType.FirstBlock:
+                return RxnAction(
+                    RxnActionType.BckFirstBlock,
+                    ra.workflow,
+                    0,
+                    ra.block,
+                    ra.block_cluster_idx,
+                    ra.block_idx,
+                )
+            case RxnActionType.BckFirstBlock:
+                return RxnAction(
+                    RxnActionType.FirstBlock,
+                    ra.workflow,
+                    0,
+                    ra.block,
+                    ra.block_cluster_idx,
+                    ra.block_idx,
+                )
+            case RxnActionType.BiRxn:
+                return RxnAction(
+                    RxnActionType.BckBiRxn,
+                    ra.workflow,
+                    ra.order,
+                    ra.block,
+                    ra.block_cluster_idx,
+                    ra.block_idx,
+                )
+            case RxnActionType.BckBiRxn:
+                return RxnAction(
+                    RxnActionType.BiRxn,
+                    ra.workflow,
+                    ra.order,
+                    ra.block,
+                    ra.block_cluster_idx,
+                    ra.block_idx,
+                )
+            case RxnActionType.UniRxn:
+                return RxnAction(RxnActionType.BckUniRxn, ra.workflow)
+            case RxnActionType.BckUniRxn:
+                return RxnAction(RxnActionType.UniRxn, ra.workflow)

@@ -14,8 +14,12 @@ if __name__ == "__main__":
         help="Path to root (entire) environment directory",
         default="./envs/enamine_all",
     )
-    parser.add_argument("-d", "--save_dir", type=str, help="Path to environment directory")
-    parser.add_argument("-n", "--num_samples", type=int, help="Number of building blocks to subsample")
+    parser.add_argument(
+        "-d", "--save_dir", type=str, help="Path to environment directory"
+    )
+    parser.add_argument(
+        "-n", "--num_samples", type=int, help="Number of building blocks to subsample"
+    )
     parser.add_argument("--seed", type=int, help="Random Seed", default=1)
     args = parser.parse_args()
 
@@ -29,7 +33,9 @@ if __name__ == "__main__":
     with open(block_path) as f:
         lines = f.readlines()
 
-    print(f"get subset with randomly selected {args.num_samples} blocks with seed {args.seed}")
+    print(
+        f"get subset with randomly selected {args.num_samples} blocks with seed {args.seed}"
+    )
     random.seed(args.seed)
     indices = list(range(len(lines)))
     random.shuffle(indices)

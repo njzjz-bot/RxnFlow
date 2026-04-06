@@ -1,14 +1,17 @@
 from argparse import ArgumentParser
 
 import wandb
-from rxnflow.config import Config, init_empty
 from rxnflow.tasks.seh import SEHTrainer
+
+from rxnflow.config import Config, init_empty
 
 
 def parse_args():
     parser = ArgumentParser("RxnFlow", description="SEH Proxy optimization")
     run_cfg = parser.add_argument_group("Operation Config")
-    run_cfg.add_argument("-o", "--out_dir", type=str, required=True, help="Output directory")
+    run_cfg.add_argument(
+        "-o", "--out_dir", type=str, required=True, help="Output directory"
+    )
     run_cfg.add_argument(
         "-n",
         "--num_iterations",
@@ -16,7 +19,12 @@ def parse_args():
         default=10_000,
         help="Number of training iterations (default: 10,000)",
     )
-    run_cfg.add_argument("--env_dir", type=str, default="./data/envs/catalog", help="Environment Directory Path")
+    run_cfg.add_argument(
+        "--env_dir",
+        type=str,
+        default="./data/envs/catalog",
+        help="Environment Directory Path",
+    )
     run_cfg.add_argument(
         "--subsampling_ratio",
         type=float,
